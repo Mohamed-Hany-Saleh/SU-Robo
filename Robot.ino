@@ -38,6 +38,7 @@ bool credentialsReceived = false;
 
 bool isSpinning = false;
 unsigned long spinStartTime = 0;
+bool isForceStopped = false;
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
@@ -60,19 +61,35 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           value.trim();
           Serial.print("Command Received: ");
           Serial.println(value);
-          if (value == "F") { isSpinning = false; moveForward(); }
-          else if (value == "B") { isSpinning = false; moveBackward(); }
-          else if (value == "R") { isSpinning = false; turnRight(); }
-          else if (value == "L") { isSpinning = false; turnLeft(); }
-          else if (value == "S") { isSpinning = false; stopMotors(); }
-          else if (value == "C") {
-            Serial.println("Starting 360 Spin...");
-            setSpeed(255);
-            turnRight();
-            isSpinning = true;
-            spinStartTime = millis();
+          
+          if (value == "X") {
+            Serial.println("Force Stop Enabled!");
+            isForceStopped = true;
+            isSpinning = false;
+            stopMotors();
           }
-          else if (value == "D") {
+          else if (value == "Y") {
+            Serial.println("Force Stop Disabled.");
+            isForceStopped = false;
+          }
+          else if (value == "S") {
+            isSpinning = false;
+            stopMotors();
+          }
+          else if (!isForceStopped) {
+            if (value == "F") { isSpinning = false; moveForward(); }
+            else if (value == "B") { isSpinning = false; moveBackward(); }
+            else if (value == "R") { isSpinning = false; turnRight(); }
+            else if (value == "L") { isSpinning = false; turnLeft(); }
+            else if (value == "C") {
+              Serial.println("Starting 360 Spin...");
+              setSpeed(255);
+              turnRight();
+              isSpinning = true;
+              spinStartTime = millis();
+            }
+          }
+          if (value == "D") {
             WiFi.disconnect();
             Serial.println("WiFi Disconnected via BLE Command.");
           } else {

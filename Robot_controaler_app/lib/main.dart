@@ -83,6 +83,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   bool _isScanning = false;
   bool _isConnecting = false;
   bool _isPasswordVisible = false;
+  bool _isForceStopped = false;
   List<ScanResult> _scanResults = [];
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
@@ -265,30 +266,35 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     }
   }
 
-  Widget _buildControlButton(IconData icon, String cmd, {bool isStop = false}) {
+  Widget _buildControlButton(IconData icon, String cmd, {bool isAction = false}) {
+    final isDisabled = _isForceStopped;
     return GestureDetector(
-      onTapDown: (_) => _sendCommand(cmd),
-      onTapUp: isStop ? null : (_) => _sendCommand('S'), // Auto stop on release
-      onTapCancel: isStop ? null : () => _sendCommand('S'),
+      onTapDown: isDisabled ? null : (_) => _sendCommand(cmd),
+      onTapUp: isDisabled ? null : (isAction ? null : (_) => _sendCommand('S')),
+      onTapCancel: isDisabled ? null : (isAction ? null : () => _sendCommand('S')),
       child: Container(
         width: 70,
         height: 70,
         decoration: BoxDecoration(
-          color: isStop ? Colors.redAccent.withValues(alpha: 0.2) : const Color(0xFF2A2D35),
+          color: isDisabled 
+                 ? Colors.grey.shade900 
+                 : (isAction ? Colors.purpleAccent.withValues(alpha: 0.2) : const Color(0xFF2A2D35)),
           shape: BoxShape.circle,
           border: Border.all(
-            color: isStop ? Colors.redAccent : Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+            color: isDisabled 
+                   ? Colors.grey.shade800 
+                   : (isAction ? Colors.purpleAccent : Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
             width: 2,
           ),
-          boxShadow: [
+          boxShadow: isDisabled ? [] : [
             BoxShadow(
-              color: isStop ? Colors.redAccent.withValues(alpha: 0.2) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+              color: isAction ? Colors.purpleAccent.withValues(alpha: 0.2) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
               blurRadius: 10,
               spreadRadius: 1,
             )
           ]
         ),
-        child: Icon(icon, size: 36, color: isStop ? Colors.redAccent : Theme.of(context).colorScheme.primary),
+        child: Icon(icon, size: 36, color: isDisabled ? Colors.grey.shade700 : (isAction ? Colors.purpleAccent : Theme.of(context).colorScheme.primary)),
       ),
     );
   }
@@ -575,7 +581,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
             children: [
               _buildControlButton(Icons.keyboard_arrow_left, 'L'),
               const SizedBox(width: 16),
-              _buildControlButton(Icons.rotate_right, 'C', isStop: true),
+              _buildControlButton(Icons.rotate_right, 'C', isAction: true),
               const SizedBox(width: 16),
               _buildControlButton(Icons.keyboard_arrow_right, 'R'),
             ],
@@ -585,6 +591,43 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _buildControlButton(Icons.keyboard_arrow_down, 'B'),
+            ],
+          ),
+          
+          const SizedBox(height: 30),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _sendCommand('S'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                ),
+                icon: const Icon(Icons.stop_circle, size: 26),
+                label: const Text('STOP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isForceStopped = !_isForceStopped;
+                  });
+                  _sendCommand(_isForceStopped ? 'X' : 'Y');
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isForceStopped ? Colors.redAccent.shade700 : const Color(0xFF2A2D35),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  side: BorderSide(
+                    color: _isForceStopped ? Colors.redAccent : Colors.grey.shade700,
+                    width: 2,
+                  ),
+                ),
+                icon: Icon(_isForceStopped ? Icons.lock : Icons.lock_open, size: 26),
+                label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
           
