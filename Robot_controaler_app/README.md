@@ -1,17 +1,41 @@
-# robot_controaler_app
+# SU Robo Controller
 
-A new Flutter project.
+A Flutter application designed to connect to an ESP32 robot via Bluetooth Low Energy (BLE) and send Wi-Fi credentials effortlessly. This project runs entirely isolated within a Docker container, keeping your host machine clean.
 
-## Getting Started
+## Prerequisites
+- Docker engine installed and running.
+- A physical Android device with "Wireless Debugging" enabled (or connected via USB and `adb tcpip` configured).
 
-This project is a starting point for a Flutter application.
+## How to Run the App (Dockerized)
 
-A few resources to get you started if this is your first Flutter project:
+Follow these steps to build and run the app directly on your physical phone:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+1. **Start the Docker Environment**:
+   Run the `up.bat` script. This will build the Ubuntu-based image with the Android and Flutter SDKs, and start the container as a background service:
+   ```cmd
+   .\up.bat
+   ```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+2. **Open the Developer Shell**:
+   Enter the interactive shell inside the running container using the `shell.bat` script:
+   ```cmd
+   .\shell.bat
+   ```
+
+3. **Connect Your Phone via ADB**:
+   While inside the shell, connect to your phone over Wi-Fi. Replace `192.168.x.x` with your phone's actual IP address:
+   ```bash
+   adb connect 192.168.x.x:5555
+   ```
+   *(If prompted on your phone, accept the debugging connection).*
+
+4. **Run the Flutter Application**:
+   Now that the device is connected, deploy the app:
+   ```bash
+   flutter run
+   ```
+
+## Features
+- Modern, dynamic UI for scanning BLE devices.
+- Auto-filters to find the specific `Robot_BLE` device.
+- Input fields to transmit `SSID` and `PASSWORD` directly to the robot.
