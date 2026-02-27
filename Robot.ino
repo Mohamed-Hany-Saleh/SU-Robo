@@ -3,6 +3,13 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 
+void moveForward();
+void moveBackward();
+void stopMotors();
+void turnRight();
+void turnLeft();
+void setSpeed(int spd);
+
 // ================== Driver 1 (Rear) ==================
 #define ENA1 26
 #define IN1_1 25
@@ -47,7 +54,20 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           Serial.print("PASS: "); Serial.println(wifi_pass);
           Serial.println("=================================");
         } else {
-          Serial.println("Invalid format. Please send as: SSID,PASSWORD");
+          value.trim();
+          Serial.print("Command Received: ");
+          Serial.println(value);
+          if (value == "F") moveForward();
+          else if (value == "B") moveBackward();
+          else if (value == "R") turnRight();
+          else if (value == "L") turnLeft();
+          else if (value == "S") stopMotors();
+          else if (value == "D") {
+            WiFi.disconnect();
+            Serial.println("WiFi Disconnected via BLE Command.");
+          } else {
+            Serial.println("Unknown command or format.");
+          }
         }
       }
     }
@@ -118,7 +138,7 @@ void setup() {
         Serial.println(WiFi.localIP());
         
         // إيقاف البلوتوث لتوفير الذاكرة (اختياري)
-        BLEDevice::deinit(true);
+        // BLEDevice::deinit(true); // تم التعطيل للسماح للتحكم المستمر عن طريق البلوتوث
         break;
       } else {
         Serial.println("\nFailed to connect to WiFi. Please check credentials and resend via BLE.");
@@ -208,30 +228,25 @@ void turnRight() {
   setSpeed(speedValue);
 }
 
+void turnLeft() {
+  // عكس حركة turnRight تقريباً للانعطاف لليسار
+  digitalWrite(IN1_1, HIGH);
+  digitalWrite(IN2_1, LOW);
+  digitalWrite(IN1_2, LOW);
+  digitalWrite(IN2_2, HIGH);
+
+  digitalWrite(IN3_1, LOW);
+  digitalWrite(IN4_1, HIGH);
+  digitalWrite(IN3_2, HIGH);
+  digitalWrite(IN4_2, LOW);
+  
+  setSpeed(speedValue);
+}
+
 // ================== LOOP TEST ==================
 
 void loop() {
-
-  // سرعة 128 زي المطلوبة
-  setSpeed(128);   
-
-  // يمشى لقدام لمدة ثانية ونص
-  moveForward();
-  delay(1500);
-
-  // يرجع لورا لمدة ثانية ونص
-  moveBackward();
-  delay(1500);
-
-  setSpeed(255);
-  // يلف 360 درجة 
-  turnRight();
-  // السطر اللي جاي ده الوقت التقريبي للدوران، ممكن تحتاجه تقلله أو تزوده عشان يظبط لفة كاملة 360 درجة بالضبط
-  delay(2000); 
-
-  // يقف خالص
-  stopMotors();
-
-  // ميرجعش يكرر
-  while(true);  
+  // التوجيهات تأتي الآن عن طريق البلوتوث (Event Driven) 
+  // ولا داعي لتسلسل الأوامر المبرمجة الثابتة هنا
+  delay(100);
 }

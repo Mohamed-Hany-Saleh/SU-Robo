@@ -82,6 +82,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   
   bool _isScanning = false;
   bool _isConnecting = false;
+  bool _isPasswordVisible = false;
   List<ScanResult> _scanResults = [];
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
@@ -247,6 +248,49 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     } catch (e) {
       _showSnackBar('Failed to send payload: $e', isError: true);
     }
+  }
+
+  Future<void> _sendCommand(String cmd) async {
+    if (_targetCharacteristic == null || _connectedDevice == null) {
+      _showSnackBar('Not connected to a valid device!', isError: true);
+      return;
+    }
+    try {
+      await _targetCharacteristic!.write(utf8.encode(cmd), withoutResponse: false);
+      if (cmd == 'D') {
+        _showSnackBar('Wi-Fi Disconnect command sent to Robot.');
+      }
+    } catch (e) {
+      _showSnackBar('Failed to send command: $e', isError: true);
+    }
+  }
+
+  Widget _buildControlButton(IconData icon, String cmd, {bool isStop = false}) {
+    return GestureDetector(
+      onTapDown: (_) => _sendCommand(cmd),
+      onTapUp: isStop ? null : (_) => _sendCommand('S'), // Auto stop on release
+      onTapCancel: isStop ? null : () => _sendCommand('S'),
+      child: Container(
+        width: 70,
+        height: 70,
+        decoration: BoxDecoration(
+          color: isStop ? Colors.redAccent.withValues(alpha: 0.2) : const Color(0xFF2A2D35),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isStop ? Colors.redAccent : Theme.of(context).colorScheme.primary.withValues(alpha: 0.5),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isStop ? Colors.redAccent.withValues(alpha: 0.2) : Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+              blurRadius: 10,
+              spreadRadius: 1,
+            )
+          ]
+        ),
+        child: Icon(icon, size: 36, color: isStop ? Colors.redAccent : Theme.of(context).colorScheme.primary),
+      ),
+    );
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -469,10 +513,18 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
           
           TextField(
             controller: _passwordController,
-            obscureText: true,
-            decoration: const InputDecoration(
+            obscureText: !_isPasswordVisible,
+            decoration: InputDecoration(
               labelText: 'Wi-Fi Password',
-              prefixIcon: Icon(Icons.lock),
+              prefixIcon: const Icon(Icons.lock),
+              suffixIcon: IconButton(
+                icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off),
+                onPressed: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
+              ),
             ),
           ),
           
@@ -494,6 +546,60 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
               ],
             ),
           ),
+          
+          const SizedBox(height: 40),
+          const Divider(color: Colors.white24, thickness: 1),
+          const SizedBox(height: 20),
+          const Text(
+            'Robot Live Control',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Press and hold a button to move. Release to stop.',
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 30),
+          
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildControlButton(Icons.keyboard_arrow_up, 'F'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildControlButton(Icons.keyboard_arrow_left, 'L'),
+              const SizedBox(width: 16),
+              _buildControlButton(Icons.stop_circle_outlined, 'S', isStop: true),
+              const SizedBox(width: 16),
+              _buildControlButton(Icons.keyboard_arrow_right, 'R'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildControlButton(Icons.keyboard_arrow_down, 'B'),
+            ],
+          ),
+          
+          const SizedBox(height: 40),
+          ElevatedButton.icon(
+            onPressed: () => _sendCommand('D'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent.shade700,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+            ),
+            icon: const Icon(Icons.wifi_off),
+            label: const Text('DISCONNECT WI-FI', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+          ),
+          const SizedBox(height: 40),
         ],
       ),
     );
