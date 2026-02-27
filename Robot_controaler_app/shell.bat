@@ -1,0 +1,3 @@
+@echo off
+echo Entering Flutter Docker environment...
+docker exec -it flutter_dev_env bash

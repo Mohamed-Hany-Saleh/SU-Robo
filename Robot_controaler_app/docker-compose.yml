@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  flutter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flutter_dev_env
+    volumes:
+      - .:/app
+    # Run indefinitely so we can 'exec' into it
+    command: tail -f /dev/null
+    # Share context with host networking to access ADB over TCP easily
+    network_mode: "host"
