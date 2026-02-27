@@ -22,7 +22,6 @@ class MyApp extends StatelessWidget {
           primary: Colors.tealAccent.shade400,
           secondary: Colors.blueAccent,
           surface: const Color(0xFF1E2128),
-          background: const Color(0xFF0F1115),
         ),
         scaffoldBackgroundColor: const Color(0xFF0F1115),
         useMaterial3: true,
@@ -36,7 +35,7 @@ class MyApp extends StatelessWidget {
             letterSpacing: 1.2,
           ),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: const Color(0xFF1E2128),
           elevation: 8,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -97,17 +96,34 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    await [
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetooth,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
+      Permission.locationWhenInUse,
     ].request();
+
+    bool allGranted = true;
+    statuses.forEach((permission, status) {
+      if (!status.isGranted) allGranted = false;
+    });
+
+    if (!allGranted) {
+      _showSnackBar('Permissions missing. The app cannot scan for Bluetooth.', isError: true);
+    }
   }
 
   Future<void> _startScan() async {
     if (_isScanning) return;
     
+    // Check if Bluetooth is ON before scanning
+    var adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
+      _showSnackBar('Bluetooth is turned off! Please enable it.', isError: true);
+      return;
+    }
+
     _scanResultsSubscription?.cancel();
     _isScanningSubscription?.cancel();
     
@@ -127,9 +143,8 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     _scanResultsSubscription = FlutterBluePlus.scanResults.listen((results) {
       if (mounted) {
         setState(() {
-          // Filter to only show devices with names to keep UI clean,
-          // prioritizing 'Robot_BLE'
-          _scanResults = results.where((r) => r.device.platformName.isNotEmpty || r.device.advName.isNotEmpty).toList();
+          // Do not filter out empty names to ensure we actually see all raw devices during testing
+          _scanResults = results.toList();
           _scanResults.sort((a, b) {
             final nameA = a.device.platformName.isNotEmpty ? a.device.platformName : a.device.advName;
             if (nameA == 'Robot_BLE') return -1;
@@ -227,7 +242,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     final payload = '$ssid,$password';
     
     try {
-      await _targetCharacteristic!.write(utf8.encode(payload), withoutResponse: true);
+      await _targetCharacteristic!.write(utf8.encode(payload), withoutResponse: false);
       _showSnackBar('Wi-Fi Credentials sent to Robot successfully!');
     } catch (e) {
       _showSnackBar('Failed to send payload: $e', isError: true);
@@ -346,7 +361,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                           leading: CircleAvatar(
-                            backgroundColor: isTarget ? Theme.of(context).colorScheme.primary.withOpacity(0.2) : Colors.grey.shade800,
+                            backgroundColor: isTarget ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.2) : Colors.grey.shade800,
                             child: Icon(
                               isTarget ? Icons.smart_toy : Icons.bluetooth,
                               color: isTarget ? Theme.of(context).colorScheme.primary : Colors.grey.shade400,
@@ -390,21 +405,21 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                   Colors.tealAccent.shade400.withOpacity(0.2),
-                   Colors.blueAccent.withOpacity(0.1),
+                   Colors.tealAccent.shade400.withValues(alpha: 0.2),
+                   Colors.blueAccent.withValues(alpha: 0.1),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+              border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.tealAccent.shade400.withOpacity(0.2),
+                    color: Colors.tealAccent.shade400.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(Icons.check_circle, color: Colors.tealAccent.shade400, size: 32),
