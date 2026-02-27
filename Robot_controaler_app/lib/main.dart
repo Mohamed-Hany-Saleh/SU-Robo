@@ -575,7 +575,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
             children: [
               _buildControlButton(Icons.keyboard_arrow_left, 'L'),
               const SizedBox(width: 16),
-              _buildControlButton(Icons.stop_circle_outlined, 'S', isStop: true),
+              _buildControlButton(Icons.rotate_right, 'C', isStop: true),
               const SizedBox(width: 16),
               _buildControlButton(Icons.keyboard_arrow_right, 'R'),
             ],

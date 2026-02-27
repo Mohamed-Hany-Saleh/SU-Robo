@@ -36,6 +36,9 @@ String wifi_ssid = "";
 String wifi_pass = "";
 bool credentialsReceived = false;
 
+bool isSpinning = false;
+unsigned long spinStartTime = 0;
+
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
       String value = pCharacteristic->getValue().c_str();
@@ -57,11 +60,18 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           value.trim();
           Serial.print("Command Received: ");
           Serial.println(value);
-          if (value == "F") moveForward();
-          else if (value == "B") moveBackward();
-          else if (value == "R") turnRight();
-          else if (value == "L") turnLeft();
-          else if (value == "S") stopMotors();
+          if (value == "F") { isSpinning = false; moveForward(); }
+          else if (value == "B") { isSpinning = false; moveBackward(); }
+          else if (value == "R") { isSpinning = false; turnRight(); }
+          else if (value == "L") { isSpinning = false; turnLeft(); }
+          else if (value == "S") { isSpinning = false; stopMotors(); }
+          else if (value == "C") {
+            Serial.println("Starting 360 Spin...");
+            setSpeed(255);
+            turnRight();
+            isSpinning = true;
+            spinStartTime = millis();
+          }
           else if (value == "D") {
             WiFi.disconnect();
             Serial.println("WiFi Disconnected via BLE Command.");
@@ -246,7 +256,14 @@ void turnLeft() {
 // ================== LOOP TEST ==================
 
 void loop() {
-  // التوجيهات تأتي الآن عن طريق البلوتوث (Event Driven) 
-  // ولا داعي لتسلسل الأوامر المبرمجة الثابتة هنا
-  delay(100);
+  if (isSpinning) {
+    if (millis() - spinStartTime >= 2000) {
+      // بعد ثانيتين يقف
+      stopMotors();
+      isSpinning = false;
+      Serial.println("360 Spin Complete.");
+    }
+  } else {
+    delay(100);
+  }
 }
