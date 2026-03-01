@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 void main() {
   runApp(const MyApp());
@@ -84,6 +87,14 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   bool _isConnecting = false;
   bool _isPasswordVisible = false;
   bool _isForceStopped = false;
+  
+  // Voice & TTS Variables
+  final SpeechToText _speechToText = SpeechToText();
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _speechEnabled = false;
+  bool _isListening = false;
+  String _lastWords = '';
+
   List<ScanResult> _scanResults = [];
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
@@ -94,7 +105,105 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   @override
   void initState() {
     super.initState();
+    _initSpeechAndTts();
     _requestPermissions().then((_) => _startScan());
+  }
+
+  void _initSpeechAndTts() async {
+    _speechEnabled = await _speechToText.initialize();
+    
+    // Set up TTS
+    await _flutterTts.setLanguage("en-US");
+    await _flutterTts.setSpeechRate(0.5);
+    await _flutterTts.setVolume(1.0);
+    await _flutterTts.setPitch(1.0);
+    await _flutterTts.awaitSpeakCompletion(true); // Wait for speech to finish before moving to next line
+    
+    if (mounted) setState(() {});
+  }
+
+  void _startListening() async {
+    if (await Permission.microphone.request().isGranted) {
+      String? selectedLocale;
+      try {
+        var locales = await _speechToText.locales();
+        for (var loc in locales) {
+          if (loc.localeId.toLowerCase().startsWith('ar')) {
+            selectedLocale = loc.localeId;
+            break; // Stop at the first Arabic locale found
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching locales: $e");
+      }
+      
+      await _speechToText.listen(onResult: _onSpeechResult, localeId: selectedLocale);
+      setState(() { _isListening = true; });
+    } else {
+      _showSnackBar("Microphone permission denied", isError: true);
+    }
+  }
+
+  void _stopListening() async {
+    await _speechToText.stop();
+    setState(() { _isListening = false; });
+  }
+
+  void _onSpeechResult(SpeechRecognitionResult result) {
+    setState(() {
+      _lastWords = result.recognizedWords;
+    });
+    
+    if (result.finalResult) {
+       _stopListening();
+       _processVoiceCommand(_lastWords.toLowerCase());
+    }
+  }
+
+  Future<void> _processVoiceCommand(String command) async {
+    if (_connectedDevice == null) {
+      _showSnackBar("Connect to robot first before voice parsing!", isError: true);
+      return;
+    }
+    if (_isForceStopped) {
+      _showSnackBar("Force Stop is Active! Disabled voice.", isError: true);
+      return;
+    }
+    
+    String cmd = '';
+    
+    // Arabic + English + Phonetic parsing
+    if (command.contains('قدام') || command.contains('أمام') || command.contains('forward') || command.contains('oddam') || command.contains('adam')) {
+      cmd = 'F';
+    } else if (command.contains('ورا') || command.contains('خلف') || command.contains('back') || command.contains('backward') || command.contains('wara')) {
+      cmd = 'B';
+    } else if (command.contains('يمين') || command.contains('right') || command.contains('yameen') || command.contains('you mean')) {
+      cmd = 'R';
+    } else if (command.contains('شمال') || command.contains('يسار') || command.contains('left') || command.contains('yasar') || command.contains('shamal')) {
+      cmd = 'L';
+    } else if (command.contains('لف') || command.contains('دوران') || command.contains('spin') || command.contains('javaron') || command.contains('davaron') || command.contains('dawaran')) {
+      cmd = 'C';
+    } else if (command.contains('قف') || command.contains('توقف') || command.contains('stop') || command.contains('qif') || command.contains('ouaf')) {
+      cmd = 'S';
+    } else {
+      _showSnackBar('Unrecognized voice command: $command');
+      return;
+    }
+
+    if (cmd == 'S') {
+      _sendCommand('S');
+      await _flutterTts.speak("Okay Sir, Stopping");
+      return;
+    }
+
+    // TTS feedback
+    _showSnackBar("Voice Command accepted: $cmd");
+    await _flutterTts.speak("Okay Sir");
+    
+    // Command sequence (3-second auto-stop)
+    _sendCommand(cmd);
+    await Future.delayed(const Duration(seconds: 3));
+    _sendCommand('S');
   }
 
   Future<void> _requestPermissions() async {
@@ -353,6 +462,18 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
           child: _connectedDevice == null ? _buildScannerView() : _buildControlView(),
         ),
       ),
+      floatingActionButton: _connectedDevice != null ? FloatingActionButton(
+        onPressed: () {
+          if (!_speechEnabled) {
+            _showSnackBar("Speech integration not initialized.", isError: true);
+            return;
+          }
+          _isListening ? _stopListening() : _startListening();
+        },
+        tooltip: 'Voice Command',
+        backgroundColor: _isListening ? Colors.redAccent : Theme.of(context).colorScheme.primary,
+        child: Icon(_isListening ? Icons.mic : Icons.mic_none, color: Colors.white, size: 28),
+      ) : null,
     );
   }
 
