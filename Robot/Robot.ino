@@ -8,6 +8,10 @@ void moveBackward();
 void stopMotors();
 void turnRight();
 void turnLeft();
+void moveForwardRight();
+void moveForwardLeft();
+void moveBackwardRight();
+void moveBackwardLeft();
 void setSpeed(int spd);
 
 // ================== Driver 1 (Rear) ==================
@@ -25,6 +29,9 @@ void setSpeed(int spd);
 #define ENB2 4
 #define IN3_2 17
 #define IN4_2 16
+
+// ================== Buzzer ==================
+#define BUZZER_PIN 21
 
 int speedValue = 200;  // 0 → 255
 
@@ -76,11 +83,27 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             isSpinning = false;
             stopMotors();
           }
+          else if (value == "Z") {
+            digitalWrite(BUZZER_PIN, HIGH);
+            Serial.println("Buzzer ON");
+          }
+          else if (value == "z") {
+            digitalWrite(BUZZER_PIN, LOW);
+            Serial.println("Buzzer OFF");
+          }
+          else if (value == "1") { setSpeed(80);  Serial.println("Speed -> Gear 1"); }
+          else if (value == "2") { setSpeed(140); Serial.println("Speed -> Gear 2"); }
+          else if (value == "3") { setSpeed(200); Serial.println("Speed -> Gear 3"); }
+          else if (value == "4") { setSpeed(255); Serial.println("Speed -> Gear 4"); }
           else if (!isForceStopped) {
             if (value == "F") { isSpinning = false; moveForward(); }
             else if (value == "B") { isSpinning = false; moveBackward(); }
             else if (value == "R") { isSpinning = false; turnRight(); }
             else if (value == "L") { isSpinning = false; turnLeft(); }
+            else if (value == "I") { isSpinning = false; moveForwardRight(); }
+            else if (value == "G") { isSpinning = false; moveForwardLeft(); }
+            else if (value == "J") { isSpinning = false; moveBackwardRight(); }
+            else if (value == "H") { isSpinning = false; moveBackwardLeft(); }
             else if (value == "C") {
               Serial.println("Starting 360 Spin...");
               setSpeed(255);
@@ -125,6 +148,7 @@ void setup() {
   Serial.begin(115200);
 
   // اتجاه البنات
+  pinMode(BUZZER_PIN, OUTPUT);
   pinMode(IN1_1, OUTPUT);
   pinMode(IN2_1, OUTPUT);
   pinMode(IN3_1, OUTPUT);
@@ -266,6 +290,66 @@ void turnLeft() {
   digitalWrite(IN4_1, HIGH);
   digitalWrite(IN3_2, HIGH);
   digitalWrite(IN4_2, LOW);
+  
+  setSpeed(speedValue);
+}
+
+void moveForwardRight() {
+  // للتحرك يمين للأمام بزاوية (تشغيل العجل الشمال للأمام وإيقاف اليمين)
+  digitalWrite(IN1_1, HIGH);
+  digitalWrite(IN2_1, LOW);
+  digitalWrite(IN1_2, HIGH);
+  digitalWrite(IN2_2, LOW);
+
+  digitalWrite(IN3_1, LOW);
+  digitalWrite(IN4_1, LOW);
+  digitalWrite(IN3_2, LOW);
+  digitalWrite(IN4_2, LOW);
+  
+  setSpeed(speedValue);
+}
+
+void moveForwardLeft() {
+  // للتحرك يسار للأمام بزاوية (إيقاف العجل الشمال وتشغيل اليمين للأمام)
+  digitalWrite(IN1_1, LOW);
+  digitalWrite(IN2_1, LOW);
+  digitalWrite(IN1_2, LOW);
+  digitalWrite(IN2_2, LOW);
+
+  digitalWrite(IN3_1, HIGH);
+  digitalWrite(IN4_1, LOW);
+  digitalWrite(IN3_2, HIGH);
+  digitalWrite(IN4_2, LOW);
+  
+  setSpeed(speedValue);
+}
+
+void moveBackwardRight() {
+  // للتحرك يمين للخلف بزاوية (تشغيل العجل الشمال للخلف وإيقاف اليمين)
+  digitalWrite(IN1_1, LOW);
+  digitalWrite(IN2_1, HIGH);
+  digitalWrite(IN1_2, LOW);
+  digitalWrite(IN2_2, HIGH);
+
+  digitalWrite(IN3_1, LOW);
+  digitalWrite(IN4_1, LOW);
+  digitalWrite(IN3_2, LOW);
+  digitalWrite(IN4_2, LOW);
+  
+  setSpeed(speedValue);
+}
+
+void moveBackwardLeft() {
+  // للتحرك يسار للخلف بزاوية (إيقاف العجل الشمال وتشغيل اليمين للخلف)
+  digitalWrite(IN1_1, LOW);
+  digitalWrite(IN2_1, LOW);
+  digitalWrite(IN1_2, LOW);
+  digitalWrite(IN2_2, LOW);
+
+  digitalWrite(IN3_1, LOW);
+  digitalWrite(IN4_1, HIGH);
+  digitalWrite(IN3_2, LOW);
+  digitalWrite(IN4_2, HIGH);
   
   setSpeed(speedValue);
 }

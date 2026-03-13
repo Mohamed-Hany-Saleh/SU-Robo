@@ -6,6 +6,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:flutter_joystick/flutter_joystick.dart';
+import 'dart:math';
 
 void main() {
   runApp(const MyApp());
@@ -87,6 +89,17 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   bool _isConnecting = false;
   bool _isPasswordVisible = false;
   bool _isForceStopped = false;
+  bool _isBuzzerOn = false;
+  double _currentSpeedGear = 3; // 1 to 4
+  
+  String _lastJoystickCommand = 'S';
+  int _selectedIndex = 0;
+  
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
   
   // Voice & TTS Variables
   final SpeechToText _speechToText = SpeechToText();
@@ -308,6 +321,11 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
         });
       } else {
         _showSnackBar('Connected securely to ${device.platformName.isNotEmpty ? device.platformName : device.advName}');
+        if (mounted) {
+          setState(() {
+            _selectedIndex = 3;
+          });
+        }
       }
       
     } catch (e) {
@@ -372,6 +390,38 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
       }
     } catch (e) {
       _showSnackBar('Failed to send command: $e', isError: true);
+    }
+  }
+
+  String _getCommandFromJoystick(double x, double y) {
+    double magnitude = sqrt(x * x + y * y);
+    if (magnitude < 0.3) {
+      return 'S';
+    }
+    double angle = atan2(y, x); // -pi to pi
+    if (angle < 0) angle += 2 * pi;
+    
+    // Divide into 8 sectors of 45 degrees
+    int sector = ((angle + pi / 8) / (pi / 4)).floor() % 8;
+    switch (sector) {
+      case 0: return 'R'; // Right
+      case 1: return 'J'; // Backward Right
+      case 2: return 'B'; // Backward
+      case 3: return 'H'; // Backward Left
+      case 4: return 'L'; // Left
+      case 5: return 'G'; // Forward Left
+      case 6: return 'F'; // Forward
+      case 7: return 'I'; // Forward Right
+    }
+    return 'S';
+  }
+
+  void _onJoystickChanged(StickDragDetails details) {
+    if (_isForceStopped) return;
+    String cmd = _getCommandFromJoystick(details.x, details.y);
+    if (cmd != _lastJoystickCommand) {
+      _lastJoystickCommand = cmd;
+      _sendCommand(cmd);
     }
   }
 
@@ -457,12 +507,31 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
         ],
       ),
       body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 500),
-          child: _connectedDevice == null ? _buildScannerView() : _buildControlView(),
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            _buildHomePage(),
+            _buildScannerView(),
+            _buildWifiPage(),
+            _buildControlPage(),
+          ],
         ),
       ),
-      floatingActionButton: _connectedDevice != null ? FloatingActionButton(
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: const Color(0xFF15171C),
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        unselectedItemColor: Colors.grey.shade600,
+        currentIndex: _selectedIndex,
+        onTap: _onItemTapped,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.bluetooth), label: 'Connect'),
+          BottomNavigationBarItem(icon: Icon(Icons.wifi), label: 'Wi-Fi'),
+          BottomNavigationBarItem(icon: Icon(Icons.gamepad), label: 'Control'),
+        ],
+      ),
+      floatingActionButton: _connectedDevice != null && _selectedIndex == 3 ? FloatingActionButton(
         onPressed: () {
           if (!_speechEnabled) {
             _showSnackBar("Speech integration not initialized.", isError: true);
@@ -561,211 +630,297 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     );
   }
 
-  Widget _buildControlView() {
+  Widget _buildHomePage() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.smart_toy, size: 100, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(height: 24),
+          const Text('Welcome to', style: TextStyle(fontSize: 20, color: Colors.grey)),
+          const Text('SU Robo Controller', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 40),
+          if (_connectedDevice == null)
+            ElevatedButton.icon(
+              onPressed: () => _onItemTapped(1),
+              icon: const Icon(Icons.bluetooth_searching),
+              label: const Text('Connect Robot'),
+              style: ElevatedButton.styleFrom(
+                 backgroundColor: Theme.of(context).colorScheme.primary,
+                 foregroundColor: Colors.black,
+                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              ),
+            )
+          else
+            Column(
+              children: [
+                const Text('Status: Connected', style: TextStyle(color: Colors.tealAccent, fontSize: 18)),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () => _onItemTapped(3),
+                  icon: const Icon(Icons.gamepad),
+                  label: const Text('Start Driving'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotConnectedWarning() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.link_off, size: 80, color: Colors.grey.shade700),
+          const SizedBox(height: 20),
+          const Text('Robot not connected', style: TextStyle(fontSize: 24, color: Colors.grey)),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: () => _onItemTapped(1),
+            style: ElevatedButton.styleFrom(
+               backgroundColor: Theme.of(context).colorScheme.primary,
+               foregroundColor: Colors.black,
+            ),
+            child: const Text('Go to Connect Tab'),
+          )
+        ],
+      )
+    );
+  }
+
+  Widget _buildWifiPage() {
+    if (_connectedDevice == null) return _buildNotConnectedWarning();
+
     final name = _connectedDevice!.platformName.isNotEmpty 
                  ? _connectedDevice!.platformName 
                  : (_connectedDevice!.advName.isNotEmpty ? _connectedDevice!.advName : 'Robot');
                  
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                   Colors.tealAccent.shade400.withValues(alpha: 0.2),
-                   Colors.blueAccent.withValues(alpha: 0.1),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
-            ),
-            child: Row(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.tealAccent.shade400.withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                         Colors.tealAccent.shade400.withValues(alpha: 0.2),
+                         Colors.blueAccent.withValues(alpha: 0.1),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
                   ),
-                  child: Icon(Icons.check_circle, color: Colors.tealAccent.shade400, size: 32),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Text('Connected to', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
-                      Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.tealAccent.shade400.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.check_circle, color: Colors.tealAccent.shade400, size: 32),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Connected to', style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+                            Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.logout, color: Colors.white70),
+                        onPressed: _disconnect,
+                        tooltip: 'Disconnect',
+                      )
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.logout, color: Colors.white70),
-                  onPressed: _disconnect,
-                  tooltip: 'Disconnect',
-                )
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 40),
-          
-          const Text(
-            'Wi-Fi Configuration',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Enter network details to connect the robot to the internet.',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-          ),
-          
-          const SizedBox(height: 30),
-          
-          TextField(
-            controller: _ssidController,
-            decoration: const InputDecoration(
-              labelText: 'Wi-Fi Network Name (SSID)',
-              prefixIcon: Icon(Icons.wifi),
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          TextField(
-            controller: _passwordController,
-            obscureText: !_isPasswordVisible,
-            decoration: InputDecoration(
-              labelText: 'Wi-Fi Password',
-              prefixIcon: const Icon(Icons.lock),
-              suffixIcon: IconButton(
-                icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off),
-                onPressed: () {
-                  setState(() {
-                    _isPasswordVisible = !_isPasswordVisible;
-                  });
-                },
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 40),
-          
-          ElevatedButton(
-            onPressed: _sendCredentials,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 18),
-            ),
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.send_rounded),
-                SizedBox(width: 12),
-                Text('TRANSMIT TO ROBOT', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 40),
-          const Divider(color: Colors.white24, thickness: 1),
-          const SizedBox(height: 20),
-          const Text(
-            'Robot Live Control',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Press and hold a button to move. Release to stop.',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 30),
-          
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildControlButton(Icons.keyboard_arrow_up, 'F'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildControlButton(Icons.keyboard_arrow_left, 'L'),
-              const SizedBox(width: 16),
-              _buildControlButton(Icons.rotate_right, 'C', isAction: true),
-              const SizedBox(width: 16),
-              _buildControlButton(Icons.keyboard_arrow_right, 'R'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildControlButton(Icons.keyboard_arrow_down, 'B'),
-            ],
-          ),
-          
-          const SizedBox(height: 30),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton.icon(
-                onPressed: () => _sendCommand('S'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.shade700,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                
+                const SizedBox(height: 30),
+                const Text('Wi-Fi Configuration', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _ssidController,
+                  decoration: const InputDecoration(labelText: 'SSID', prefixIcon: Icon(Icons.wifi)),
                 ),
-                icon: const Icon(Icons.stop_circle, size: 26),
-                label: const Text('STOP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _isForceStopped = !_isForceStopped;
-                  });
-                  _sendCommand(_isForceStopped ? 'X' : 'Y');
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isForceStopped ? Colors.redAccent.shade700 : const Color(0xFF2A2D35),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  side: BorderSide(
-                    color: _isForceStopped ? Colors.redAccent : Colors.grey.shade700,
-                    width: 2,
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: !_isPasswordVisible,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock),
+                    suffixIcon: IconButton(
+                      icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+                    ),
                   ),
                 ),
-                icon: Icon(_isForceStopped ? Icons.lock : Icons.lock_open, size: 26),
-                label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 40),
-          ElevatedButton.icon(
-            onPressed: () => _sendCommand('D'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent.shade700,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 18),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: _sendCredentials,
+                  style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.black),
+                  icon: const Icon(Icons.send_rounded),
+                  label: const Text('TRANSMIT TO ROBOT', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
             ),
-            icon: const Icon(Icons.wifi_off),
-            label: const Text('DISCONNECT WI-FI', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-          ),
-          const SizedBox(height: 40),
-        ],
-      ),
+    );
+  }
+
+  Widget _buildControlPage() {
+    if (_connectedDevice == null) return _buildNotConnectedWarning();
+
+    return Container(
+            color: const Color(0xFF15171C), // Slightly different shade to differentiate control pad
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                const Text('Robot Live Control', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // JoyStick Area
+                    Expanded(
+                      flex: 3,
+                      child: Center(
+                        child: Joystick(
+                          mode: JoystickMode.all,
+                          listener: _onJoystickChanged,
+                          stick: Container(
+                            width: 60,
+                            height: 60,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+                                  blurRadius: 15,
+                                  spreadRadius: 2,
+                                )
+                              ],
+                            ),
+                            child: const Icon(Icons.gamepad, color: Colors.black, size: 30),
+                          ),
+                          base: Container(
+                            width: 180,
+                            height: 180,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2A2D35),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.grey.shade800, width: 3),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Speed Slider Area
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.speed, color: Theme.of(context).colorScheme.secondary),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 150,
+                            child: RotatedBox(
+                              quarterTurns: 3, // Make slider vertical
+                              child: Slider(
+                                value: _currentSpeedGear,
+                                min: 1,
+                                max: 4,
+                                divisions: 3,
+                                activeColor: Theme.of(context).colorScheme.primary,
+                                inactiveColor: Colors.grey.shade800,
+                                onChanged: (val) {
+                                  setState(() { _currentSpeedGear = val; });
+                                },
+                                onChangeEnd: (val) {
+                                  _sendCommand(val.toInt().toString());
+                                },
+                              ),
+                            ),
+                          ),
+                          Text('Gear ${_currentSpeedGear.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // Action Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildControlButton(Icons.rotate_right, 'C', isAction: true),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() { _isBuzzerOn = !_isBuzzerOn; });
+                        _sendCommand(_isBuzzerOn ? 'Z' : 'z');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isBuzzerOn ? Colors.amber.shade700 : const Color(0xFF2A2D35),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        side: BorderSide(color: _isBuzzerOn ? Colors.amber : Colors.grey.shade700),
+                      ),
+                      icon: Icon(_isBuzzerOn ? Icons.volume_up : Icons.volume_off),
+                      label: Text(_isBuzzerOn ? 'BUZZ ON' : 'BUZZ OFF'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => _sendCommand('S'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
+                        foregroundColor: Colors.white,
+                        shape: const CircleBorder(),
+                        padding: const EdgeInsets.all(16),
+                      ),
+                      child: const Icon(Icons.stop_circle, size: 30),
+                    ),
+                  ],
+                ),
+                
+                // Force Stop Area
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() { _isForceStopped = !_isForceStopped; });
+                        _sendCommand(_isForceStopped ? 'X' : 'Y');
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isForceStopped ? Colors.redAccent.shade700 : const Color(0xFF2A2D35),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        side: BorderSide(color: _isForceStopped ? Colors.redAccent : Colors.grey.shade700),
+                      ),
+                      icon: Icon(_isForceStopped ? Icons.lock : Icons.lock_open),
+                      label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
     );
   }
 }
