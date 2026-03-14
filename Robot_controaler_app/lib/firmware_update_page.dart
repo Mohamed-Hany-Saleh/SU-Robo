@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -29,6 +30,9 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
   String? _releaseNotes;
   String? _firmwareUrl;
   String? _firmwareSize;
+  bool _isWifiConnected = false;
+  bool _checkingWifi = true;
+  StreamSubscription? _notifySubscription;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -47,11 +51,125 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _checkForUpdates();
+    _setupNotifications();
+  }
+
+  void _setupNotifications() async {
+    if (widget.characteristic == null) return;
+
+    try {
+      await widget.characteristic!.setNotifyValue(true);
+      _notifySubscription = widget.characteristic!.onValueReceived.listen((value) {
+        final message = utf8.decode(value).trim();
+        debugPrint('BLE Notification: $message');
+
+        if (message == 'W:1') {
+          setState(() {
+            _isWifiConnected = true;
+            _checkingWifi = false;
+          });
+        } else if (message == 'W:0') {
+          setState(() {
+            _isWifiConnected = false;
+            _checkingWifi = false;
+          });
+        } else if (message == 'OTA:START') {
+          _showFinalizingDialog();
+        } else if (message == 'OTA:SUCCESS') {
+          _showSuccessDialog();
+        }
+      });
+
+      // Ask for WiFi status
+      await widget.characteristic!.write(utf8.encode('W?'), withoutResponse: false);
+    } catch (e) {
+      debugPrint('Error setting up notifications: $e');
+      setState(() => _checkingWifi = false);
+    }
+  }
+
+  void _showFinalizingDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2128),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Column(
+          children: [
+            Icon(Icons.rocket_launch, color: Colors.tealAccent, size: 60),
+            SizedBox(height: 16),
+            Text('Update Started!', textAlign: TextAlign.center),
+          ],
+        ),
+        content: const Text(
+          'The robot has begun the update. It will temporarily disconnect and then restart with the new firmware.\n\nPlease wait 1-2 minutes then reconnect.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          Center(
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).pop(); // Go back to Home
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.tealAccent,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('UNDERSTOOD'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccessDialog() {
+    if (!mounted) return;
+    setState(() => _isUpdating = false);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2128),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Column(
+          children: [
+            Icon(Icons.check_circle, color: Colors.tealAccent, size: 60),
+            SizedBox(height: 16),
+            Text('Update Complete!', textAlign: TextAlign.center),
+          ],
+        ),
+        content: const Text(
+          'The firmware has been updated successfully. The robot is restarting and will be ready in a few seconds.',
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          Center(
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                Navigator.of(context).pop(); // Go back to Home
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.tealAccent,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              ),
+              child: const Text('GREAT!'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
+    _notifySubscription?.cancel();
     super.dispose();
   }
 
@@ -128,6 +246,10 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
       _showSnackBar('Not connected to robot!', isError: true);
       return;
     }
+    if (!_isWifiConnected) {
+      _showSnackBar('Robot is not connected to Wi-Fi!', isError: true);
+      return;
+    }
     if (_firmwareUrl == null) {
       _showSnackBar('No firmware file found in this release!', isError: true);
       return;
@@ -191,70 +313,23 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
     try {
       final otaCommand = 'OTA:$_firmwareUrl';
       await widget.characteristic!
-          .write(utf8.encode(otaCommand), withoutResponse: false);
-      _showSnackBar('OTA command sent! Robot is downloading firmware...');
-
-      // Show a waiting state - the robot will reboot after flashing
-      await Future.delayed(const Duration(seconds: 3));
+          .write(utf8.encode(otaCommand), withoutResponse: false)
+          .timeout(const Duration(seconds: 10));
+      _showSnackBar('Update command sent! Waiting for robot feedback...');
+      
+      // Safety timeout: if no feedback from robot in 2 minutes, reset state
+      Future.delayed(const Duration(minutes: 2), () {
+        if (mounted && _isUpdating) {
+          setState(() => _isUpdating = false);
+          _showSnackBar('Update timed out. Please check robot status.', isError: true);
+        }
+      });
+    } catch (e) {
       if (mounted) {
         setState(() => _isUpdating = false);
-        _showSuccessDialog();
+        _showSnackBar('Failed to send OTA command: ${e.toString()}', isError: true);
       }
-    } catch (e) {
-      setState(() => _isUpdating = false);
-      _showSnackBar('Failed to send OTA command: $e', isError: true);
     }
-  }
-
-  void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E2128),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.rocket_launch, color: Colors.tealAccent, size: 28),
-            SizedBox(width: 12),
-            Text('Update In Progress'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'The firmware update command has been sent to the robot.\n\n'
-              'The robot will:\n'
-              '1. Download the firmware from GitHub\n'
-              '2. Flash the new firmware\n'
-              '3. Restart automatically\n\n'
-              'This may take 1-2 minutes. You will need to reconnect via Bluetooth after the restart.',
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Do NOT power off the robot!',
-              style: TextStyle(
-                  color: Colors.redAccent.shade200,
-                  fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              Navigator.pop(context); // Go back to home
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.tealAccent.shade400,
-              foregroundColor: Colors.black,
-            ),
-            child: const Text('GOT IT'),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildCheckItem(IconData icon, String text) {
@@ -564,12 +639,13 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
             SizedBox(
               height: 56,
               child: ElevatedButton(
-                onPressed: _isUpdating ? null : _startOtaUpdate,
+                onPressed: (_isUpdating || (_firmwareUrl == null) || (!_isWifiConnected && !_checkingWifi)) ? null : _startOtaUpdate,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.tealAccent.shade400,
                   foregroundColor: Colors.black,
-                  disabledBackgroundColor:
-                      Colors.tealAccent.shade400.withValues(alpha: 0.4),
+                  disabledBackgroundColor: (_isUpdating || _checkingWifi)
+                      ? Colors.tealAccent.shade400.withValues(alpha: 0.4)
+                      : Colors.redAccent.withValues(alpha: 0.3),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
@@ -592,13 +668,22 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
                                   letterSpacing: 1)),
                         ],
                       )
-                    : const Row(
+                    : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.download_rounded, size: 26),
-                          SizedBox(width: 12),
-                          Text('UPDATE ROBOT',
+                          Icon(
+                              !_isWifiConnected && !_checkingWifi
+                                  ? Icons.wifi_off
+                                  : Icons.download_rounded,
+                              size: 26,
+                              color: !_isWifiConnected && !_checkingWifi ? Colors.redAccent : Colors.black),
+                          const SizedBox(width: 12),
+                          Text(
+                              !_isWifiConnected && !_checkingWifi
+                                  ? 'WIFI DISCONNECTED'
+                                  : 'UPDATE ROBOT',
                               style: TextStyle(
+                                  color: !_isWifiConnected && !_checkingWifi ? Colors.redAccent : Colors.black,
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   letterSpacing: 1.2)),
@@ -606,6 +691,15 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
                       ),
               ),
             ),
+            if (!_isWifiConnected && !_checkingWifi)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text(
+                  'Please connect robot to Wi-Fi first.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.redAccent.shade100, fontSize: 13),
+                ),
+              ),
 
             const SizedBox(height: 16),
 

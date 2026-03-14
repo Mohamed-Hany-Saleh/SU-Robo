@@ -671,6 +671,56 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                   ),
                 ),
+                const SizedBox(height: 20),
+                // Software Update Button
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FirmwareUpdatePage(
+                          characteristic: _targetCharacteristic,
+                          device: _connectedDevice,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: 250,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.tealAccent.shade400, Colors.blueAccent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.tealAccent.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.system_update_alt, color: Colors.black, size: 24),
+                        SizedBox(width: 10),
+                        Text(
+                          'SOFTWARE UPDATE',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
         ],
@@ -923,57 +973,6 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                       label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP'),
                     ),
                   ],
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Software Update Button
-                GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => FirmwareUpdatePage(
-                          characteristic: _targetCharacteristic,
-                          device: _connectedDevice,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.tealAccent.shade400, Colors.blueAccent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.tealAccent.withValues(alpha: 0.3),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.system_update_alt, color: Colors.black, size: 28),
-                        SizedBox(width: 12),
-                        Text(
-                          'SOFTWARE UPDATE',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ],
             ),

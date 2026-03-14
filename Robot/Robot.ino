@@ -2,7 +2,9 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
+#include <BLE2902.h>
 #include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
 
 void moveForward();
 void moveBackward();
@@ -50,9 +52,15 @@ String wifi_ssid = "";
 String wifi_pass = "";
 bool credentialsReceived = false;
 
+BLECharacteristic *pGlobalCharacteristic;
+
 bool isSpinning = false;
 unsigned long spinStartTime = 0;
 bool isForceStopped = false;
+
+// OTA Pending Flags
+bool pendingOTA = false;
+String pendingOTAUrl = "";
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) {
@@ -77,10 +85,10 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           Serial.println(value);
           
           if (value.startsWith("OTA:")) {
-            String url = value.substring(4);
-            url.trim();
-            Serial.println("OTA Update Command Received!");
-            performOTA(url);
+            pendingOTAUrl = value.substring(4);
+            pendingOTAUrl.trim();
+            pendingOTA = true;
+            Serial.println("OTA Update Queued...");
           }
           else if (value == "X") {
             Serial.println("Force Stop Enabled!");
@@ -107,6 +115,15 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           else if (value == "D") {
             WiFi.disconnect();
             Serial.println("WiFi Disconnected via BLE Command.");
+          }
+          else if (value == "W?") {
+            if (WiFi.status() == WL_CONNECTED) {
+              pCharacteristic->setValue("W:1");
+            } else {
+              pCharacteristic->setValue("W:0");
+            }
+            pCharacteristic->notify();
+            Serial.println("WiFi Status Requested and Sent.");
           }
           else if (value == "1") { setSpeed(80);  Serial.println("Speed -> Gear 1"); }
           else if (value == "2") { setSpeed(140); Serial.println("Speed -> Gear 2"); }
@@ -142,18 +159,53 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
 void performOTA(String url) {
   if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Preparing for OTA. Deinitializing BLE to free memory...");
+    
+    // Send one last notification if possible
+    if (pGlobalCharacteristic) {
+      pGlobalCharacteristic->setValue("OTA:START");
+      pGlobalCharacteristic->notify();
+      delay(500);
+    }
+    
+    // Deinit BLE to save ~100KB of heap
+    BLEDevice::deinit(true);
+    delay(1000);
+    
+    Serial.print("Free heap before OTA: ");
+    Serial.println(ESP.getFreeHeap());
+
+    WiFiClientSecure client;
+    client.setInsecure(); 
+    client.setHandshakeTimeout(60); 
+    
+    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    httpUpdate.rebootOnUpdate(false);
+    
     Serial.println("Starting OTA from: " + url);
-    WiFiClient client;
     t_httpUpdate_return ret = httpUpdate.update(client, url);
+    
     switch (ret) {
       case HTTP_UPDATE_FAILED:
         Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+        if (httpUpdate.getLastError() == 10) {
+          Serial.println("CRITICAL: Partition scheme does NOT support OTA!");
+          Serial.println("Please change IDE Partition Scheme to: 'Minimal SPIFFS (1.9MB APP with OTA)'");
+        }
+        Serial.println("OTA Failed. Restarting robot in 5 seconds to recover...");
+        delay(5000);
+        ESP.restart(); // safer than re-initializing BLE after deinit
         break;
       case HTTP_UPDATE_NO_UPDATES:
-        Serial.println("HTTP_UPDATE_NO_UPDATES");
+        Serial.println("HTTP_UPDATE_NO_UPDATES. Restarting...");
+        delay(2000);
+        ESP.restart();
         break;
       case HTTP_UPDATE_OK:
-        Serial.println("HTTP_UPDATE_OK");
+        Serial.println("HTTP_UPDATE_OK. Update successful!");
+        Serial.println("Restarting robot in 3 seconds...");
+        delay(3000);
+        ESP.restart();
         break;
     }
   } else {
@@ -167,8 +219,12 @@ void setupBLE() {
   BLEService *pService = pServer->createService(SERVICE_UUID);
   BLECharacteristic *pCharacteristic = pService->createCharacteristic(
                                          CHARACTERISTIC_UUID,
-                                         BLECharacteristic::PROPERTY_WRITE
+                                         BLECharacteristic::PROPERTY_WRITE | 
+                                         BLECharacteristic::PROPERTY_NOTIFY
                                        );
+
+  pCharacteristic->addDescriptor(new BLE2902());
+  pGlobalCharacteristic = pCharacteristic;
 
   pCharacteristic->setCallbacks(new MyCallbacks());
   pService->start();
@@ -400,6 +456,13 @@ void moveBackwardLeft() {
 // ================== LOOP TEST ==================
 
 void loop() {
+  if (pendingOTA) {
+    pendingOTA = false;
+    Serial.println("Executing Queued OTA...");
+    delay(500); // Give some time for BLE to stabilize
+    performOTA(pendingOTAUrl);
+  }
+
   if (isSpinning) {
     if (millis() - spinStartTime >= 2000) {
       // بعد ثانيتين يقف
@@ -408,6 +471,6 @@ void loop() {
       Serial.println("360 Spin Complete.");
     }
   } else {
-    delay(100);
+    delay(10);
   }
 }
