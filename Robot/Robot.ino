@@ -2,6 +2,7 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
+#include <HTTPUpdate.h>
 
 void moveForward();
 void moveBackward();
@@ -32,6 +33,11 @@ void setSpeed(int spd);
 
 // ================== Buzzer ==================
 #define BUZZER_PIN 21
+
+// ================== Line Follower Sensors ==================
+#define SENSOR_LEFT 34
+#define SENSOR_CENTER 35
+#define SENSOR_RIGHT 39
 
 int speedValue = 200;  // 0 → 255
 
@@ -69,7 +75,13 @@ class MyCallbacks: public BLECharacteristicCallbacks {
           Serial.print("Command Received: ");
           Serial.println(value);
           
-          if (value == "X") {
+          if (value.startsWith("OTA:")) {
+            String url = value.substring(4);
+            url.trim();
+            Serial.println("OTA Update Command Received!");
+            performOTA(url);
+          }
+          else if (value == "X") {
             Serial.println("Force Stop Enabled!");
             isForceStopped = true;
             isSpinning = false;
@@ -91,6 +103,10 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             digitalWrite(BUZZER_PIN, LOW);
             Serial.println("Buzzer OFF");
           }
+          else if (value == "D") {
+            WiFi.disconnect();
+            Serial.println("WiFi Disconnected via BLE Command.");
+          }
           else if (value == "1") { setSpeed(80);  Serial.println("Speed -> Gear 1"); }
           else if (value == "2") { setSpeed(140); Serial.println("Speed -> Gear 2"); }
           else if (value == "3") { setSpeed(200); Serial.println("Speed -> Gear 3"); }
@@ -111,17 +127,38 @@ class MyCallbacks: public BLECharacteristicCallbacks {
               isSpinning = true;
               spinStartTime = millis();
             }
+            else {
+              Serial.println("Unknown command or format.");
+            }
           }
-          if (value == "D") {
-            WiFi.disconnect();
-            Serial.println("WiFi Disconnected via BLE Command.");
-          } else {
-            Serial.println("Unknown command or format.");
+          else {
+            Serial.println("Command ignored: Force stop is active.");
           }
         }
       }
     }
 };
+
+void performOTA(String url) {
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Starting OTA from: " + url);
+    WiFiClient client;
+    t_httpUpdate_return ret = httpUpdate.update(client, url);
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
+        Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+        break;
+      case HTTP_UPDATE_NO_UPDATES:
+        Serial.println("HTTP_UPDATE_NO_UPDATES");
+        break;
+      case HTTP_UPDATE_OK:
+        Serial.println("HTTP_UPDATE_OK");
+        break;
+    }
+  } else {
+    Serial.println("Cannot perform OTA: WiFi not connected");
+  }
+}
 
 void setupBLE() {
   BLEDevice::init("Robot_BLE");
@@ -158,6 +195,11 @@ void setup() {
   pinMode(IN2_2, OUTPUT);
   pinMode(IN3_2, OUTPUT);
   pinMode(IN4_2, OUTPUT);
+
+  // Line Follower
+  pinMode(SENSOR_LEFT, INPUT);
+  pinMode(SENSOR_CENTER, INPUT);
+  pinMode(SENSOR_RIGHT, INPUT);
 
   // إعداد PWM
   ledcAttach(ENA1, 1000, 8);

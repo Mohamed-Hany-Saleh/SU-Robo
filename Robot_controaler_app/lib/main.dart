@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_joystick/flutter_joystick.dart';
 import 'dart:math';
+import 'firmware_update_page.dart';
 
 void main() {
   runApp(const MyApp());
@@ -294,6 +295,10 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
 
     try {
       await device.connect(license: License.free, autoConnect: false);
+      
+      // Request larger MTU for long OTA URLs
+      await device.requestMtu(512);
+
       setState(() {
         _connectedDevice = device;
       });
@@ -918,6 +923,57 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                       label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP'),
                     ),
                   ],
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Software Update Button
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FirmwareUpdatePage(
+                          characteristic: _targetCharacteristic,
+                          device: _connectedDevice,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.tealAccent.shade400, Colors.blueAccent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.tealAccent.withValues(alpha: 0.3),
+                          blurRadius: 15,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.system_update_alt, color: Colors.black, size: 28),
+                        SizedBox(width: 12),
+                        Text(
+                          'SOFTWARE UPDATE',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
