@@ -14,6 +14,7 @@ void moveForwardLeft();
 void moveBackwardRight();
 void moveBackwardLeft();
 void setSpeed(int spd);
+void performOTA(String url);
 
 // ================== Driver 1 (Rear) ==================
 #define ENA1 26
