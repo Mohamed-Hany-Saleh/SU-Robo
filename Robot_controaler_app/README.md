@@ -27,6 +27,13 @@ Follow these steps to build and run the app directly on your physical phone:
    ```bash
    adb connect 192.168.x.x:5555
    ```
+   or
+    ```bash
+   adb pair 192.168.x.x:New port 
+   ```
+   then
+   Enter pairing code:xxxxxx
+   
    *(If prompted on your phone, accept the debugging connection).*
 
 4. **Run the Flutter Application**:
