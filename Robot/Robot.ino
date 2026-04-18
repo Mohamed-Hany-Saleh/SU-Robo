@@ -38,9 +38,13 @@ void performOTA(String url);
 #define BUZZER_PIN 21
 
 // ================== Line Follower Sensors ==================
-#define SENSOR_LEFT 34
-#define SENSOR_CENTER 35
-#define SENSOR_RIGHT 39
+#define SENSOR_LEFT 13
+#define SENSOR_CENTER 34
+#define SENSOR_RIGHT 35
+
+// (1 = Black Line, 0 = White/No Line) 
+// The sensor gives HIGH when on a Black Line (absorbing) and LOW on a White surface (reflecting)
+#define BLACK_LINE HIGH
 
 int speedValue = 200;  // 0 → 255
 
@@ -57,6 +61,7 @@ BLECharacteristic *pGlobalCharacteristic;
 bool isSpinning = false;
 unsigned long spinStartTime = 0;
 bool isForceStopped = false;
+bool isLineFollowerMode = false;
 
 // OTA Pending Flags
 bool pendingOTA = false;
@@ -94,11 +99,22 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             Serial.println("Force Stop Enabled!");
             isForceStopped = true;
             isSpinning = false;
+            isLineFollowerMode = false;
             stopMotors();
           }
           else if (value == "Y") {
             Serial.println("Force Stop Disabled.");
             isForceStopped = false;
+          }
+          else if (value == "MODE:LINE") {
+            isLineFollowerMode = true;
+            isSpinning = false;
+            Serial.println("Mode: Line Follower Active");
+          }
+          else if (value == "MODE:MANUAL") {
+            isLineFollowerMode = false;
+            stopMotors();
+            Serial.println("Mode: Manual Control");
           }
           else if (value == "S") {
             isSpinning = false;
@@ -264,40 +280,18 @@ void setup() {
   ledcAttach(ENA2, 1000, 8);
   ledcAttach(ENB2, 1000, 8);
 
-  // تشغيل البلوتوث والانتظار حتى الاتصال بالواي فاي
-  setupBLE();
-
-  while (WiFi.status() != WL_CONNECTED) {
-    if (credentialsReceived) {
-      credentialsReceived = false;
-      Serial.print("Connecting to WiFi: ");
-      Serial.println(wifi_ssid);
-      
-      WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-
-      int attempts = 0;
-      while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-      }
-
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWiFi Connected successfully!");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
-        
-        // إيقاف البلوتوث لتوفير الذاكرة (اختياري)
-        // BLEDevice::deinit(true); // تم التعطيل للسماح للتحكم المستمر عن طريق البلوتوث
-        break;
-      } else {
-        Serial.println("\nFailed to connect to WiFi. Please check credentials and resend via BLE.");
-      }
-    }
+  // Boot Beep to indicate new firmware is running
+  for(int i=0; i<3; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
     delay(100);
   }
+
+  // تشغيل البلوتوث
+  setupBLE();
   
-  Serial.println("Robot is ready to move!");
+  Serial.println("Robot is ready to move! Main loop is free.");
 }
 
 // ================== MOVEMENT ==================
@@ -456,11 +450,80 @@ void moveBackwardLeft() {
 // ================== LOOP TEST ==================
 
 void loop() {
+  if (credentialsReceived) {
+    credentialsReceived = false;
+    Serial.print("Connecting to WiFi: ");
+    Serial.println(wifi_ssid);
+    
+    WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\nWiFi Connected successfully!");
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.localIP());
+      // Beep indicating successful Wi-Fi link
+      digitalWrite(BUZZER_PIN, HIGH); delay(200); digitalWrite(BUZZER_PIN, LOW);
+    } else {
+      Serial.println("\nFailed to connect to WiFi.");
+    }
+  }
+
   if (pendingOTA) {
     pendingOTA = false;
     Serial.println("Executing Queued OTA...");
     delay(500); // Give some time for BLE to stabilize
     performOTA(pendingOTAUrl);
+  }
+
+  if (isLineFollowerMode && !isForceStopped) {
+    int leftS = digitalRead(SENSOR_LEFT);
+    int centerS = digitalRead(SENSOR_CENTER);
+    int rightS = digitalRead(SENSOR_RIGHT);
+
+    static int lastAction = -1;
+    int targetAction = 0; // 0=Stop, 1=Forward, 2=Left, 3=Right
+
+    // Line Follower Algorithm
+    if (centerS == BLACK_LINE && leftS != BLACK_LINE && rightS != BLACK_LINE) {
+      targetAction = 1; // Forward
+    } 
+    else if (leftS == BLACK_LINE && centerS != BLACK_LINE) {
+      targetAction = 2; // Turn Left
+    } 
+    else if (rightS == BLACK_LINE && centerS != BLACK_LINE) {
+      targetAction = 3; // Turn Right
+    } 
+    else if (leftS != BLACK_LINE && centerS != BLACK_LINE && rightS != BLACK_LINE) {
+      targetAction = 0; // Stop (Lost line)
+    }
+    else {
+      targetAction = 1; // Multiple sensors triggered, edge case -> Forward
+    }
+
+    if (targetAction != lastAction) {
+      if (targetAction != 0) {
+        digitalWrite(BUZZER_PIN, HIGH); // Quick beep when starting a movement
+      }
+
+      if (targetAction == 1) moveForward();
+      else if (targetAction == 2) turnLeft();
+      else if (targetAction == 3) turnRight();
+      else stopMotors();
+      
+      if (targetAction != 0) {
+        delay(5); // 5ms micro-click to avoid blocking the robot's movement
+        digitalWrite(BUZZER_PIN, LOW);
+      }
+      
+      lastAction = targetAction;
+    }
   }
 
   if (isSpinning) {
@@ -470,7 +533,7 @@ void loop() {
       isSpinning = false;
       Serial.println("360 Spin Complete.");
     }
-  } else {
+  } else if (!isLineFollowerMode) {
     delay(10);
   }
 }

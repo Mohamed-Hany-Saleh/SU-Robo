@@ -107,19 +107,18 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
           'The robot has begun the update. It will temporarily disconnect and then restart with the new firmware.\n\nPlease wait 1-2 minutes then reconnect.',
           textAlign: TextAlign.center,
         ),
+        actionsAlignment: MainAxisAlignment.center,
         actions: [
-          Center(
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                Navigator.of(context).pop(); // Go back to Home
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.tealAccent,
-                foregroundColor: Colors.black,
-              ),
-              child: const Text('UNDERSTOOD'),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop(); // Go back to Home
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
             ),
+            child: const Text('UNDERSTOOD'),
           ),
         ],
       ),
@@ -146,20 +145,19 @@ class _FirmwareUpdatePageState extends State<FirmwareUpdatePage>
           'The firmware has been updated successfully. The robot is restarting and will be ready in a few seconds.',
           textAlign: TextAlign.center,
         ),
+        actionsAlignment: MainAxisAlignment.center,
         actions: [
-          Center(
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                Navigator.of(context).pop(); // Go back to Home
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.tealAccent,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-              ),
-              child: const Text('GREAT!'),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop(); // Go back to Home
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.tealAccent,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
             ),
+            child: const Text('GREAT!'),
           ),
         ],
       ),

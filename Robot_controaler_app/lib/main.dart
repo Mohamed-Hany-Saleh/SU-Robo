@@ -90,6 +90,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   bool _isConnecting = false;
   bool _isPasswordVisible = false;
   bool _isForceStopped = false;
+  bool _isLineFollowerMode = false;
   bool _isBuzzerOn = false;
   double _currentSpeedGear = 3; // 1 to 4
   
@@ -221,7 +222,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses = await [
+    await [
       Permission.bluetooth,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
@@ -229,14 +230,9 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
       Permission.locationWhenInUse,
     ].request();
 
-    bool allGranted = true;
-    statuses.forEach((permission, status) {
-      if (!status.isGranted) allGranted = false;
-    });
-
-    if (!allGranted) {
-      _showSnackBar('Permissions missing. The app cannot scan for Bluetooth.', isError: true);
-    }
+    // We do not show a generic error here anymore, because Android 12+ might deny 
+    // legacy Bluetooth permission but grant Scan/Connect. 
+    // If permissions are truly missing, FlutterBluePlus.startScan will fail and catch it.
   }
 
   Future<void> _startScan() async {
@@ -248,6 +244,12 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
       _showSnackBar('Bluetooth is turned off! Please enable it.', isError: true);
       return;
     }
+
+    // On many Android devices, Location Services (GPS) must be turned ON to discover BLE device names
+    if (await Permission.location.serviceStatus.isDisabled) {
+      _showSnackBar('Please pull down the notification panel and turn ON Location (GPS).', isError: true);
+    }
+
 
     _scanResultsSubscription?.cancel();
     _isScanningSubscription?.cancel();
@@ -296,8 +298,15 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
     try {
       await device.connect(license: License.free, autoConnect: false);
       
-      // Request larger MTU for long OTA URLs
-      await device.requestMtu(512);
+      // Give the Android BLE stack a moment to stabilize before requesting MTU 
+      // (Fixes GATT_ERROR 133 on many Android phones)
+      await Future.delayed(const Duration(milliseconds: 1000));
+      
+      try {
+        await device.requestMtu(512);
+      } catch (mtuError) {
+        debugPrint("MTU Request failed (can be safely ignored on some devices): $mtuError");
+      }
 
       setState(() {
         _connectedDevice = device;
@@ -388,13 +397,28 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
       _showSnackBar('Not connected to a valid device!', isError: true);
       return;
     }
+    
+    // Check if device is actually still connected before sending
+    if (_connectedDevice!.isDisconnected) {
+      _disconnect(); // Clean up state
+      _showSnackBar('Robot disconnected automatically. Did the battery drop?', isError: true);
+      return;
+    }
+
     try {
       await _targetCharacteristic!.write(utf8.encode(cmd), withoutResponse: false);
       if (cmd == 'D') {
         _showSnackBar('Wi-Fi Disconnect command sent to Robot.');
       }
     } catch (e) {
-      _showSnackBar('Failed to send command: $e', isError: true);
+      String errorStr = e.toString();
+      if (errorStr.contains('133') || errorStr.contains('disconnected')) {
+         // Auto disconnect on severe BLE drop
+         _disconnect();
+         _showSnackBar('Connection dropped (GATT 133 / disconnected). Please reconnect.', isError: true);
+      } else {
+         debugPrint('Failed to send command: $e'); // Silent to avoid spamming the UI
+      }
     }
   }
 
@@ -437,8 +461,8 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
       onTapUp: isDisabled ? null : (isAction ? null : (_) => _sendCommand('S')),
       onTapCancel: isDisabled ? null : (isAction ? null : () => _sendCommand('S')),
       child: Container(
-        width: 70,
-        height: 70,
+        width: 55,
+        height: 55,
         decoration: BoxDecoration(
           color: isDisabled 
                  ? Colors.grey.shade900 
@@ -458,7 +482,7 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
             )
           ]
         ),
-        child: Icon(icon, size: 36, color: isDisabled ? Colors.grey.shade700 : (isAction ? Colors.purpleAccent : Theme.of(context).colorScheme.primary)),
+        child: Icon(icon, size: 28, color: isDisabled ? Colors.grey.shade700 : (isAction ? Colors.purpleAccent : Theme.of(context).colorScheme.primary)),
       ),
     );
   }
@@ -637,8 +661,9 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
 
   Widget _buildHomePage() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.smart_toy, size: 100, color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 24),
@@ -672,58 +697,10 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // Software Update Button
-                GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => FirmwareUpdatePage(
-                          characteristic: _targetCharacteristic,
-                          device: _connectedDevice,
-                        ),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    width: 250,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.tealAccent.shade400, Colors.blueAccent],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.tealAccent.withValues(alpha: 0.3),
-                          blurRadius: 10,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.system_update_alt, color: Colors.black, size: 24),
-                        SizedBox(width: 10),
-                        Text(
-                          'SOFTWARE UPDATE',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
         ],
+      ),
       ),
     );
   }
@@ -832,6 +809,58 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                   icon: const Icon(Icons.send_rounded),
                   label: const Text('TRANSMIT TO ROBOT', style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
+                const SizedBox(height: 30),
+                const Divider(color: Colors.grey),
+                const SizedBox(height: 10),
+                const Text('Firmware Upgrade (OTA)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.grey)),
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => FirmwareUpdatePage(
+                          characteristic: _targetCharacteristic,
+                          device: _connectedDevice,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.tealAccent.shade400, Colors.blueAccent],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(15),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.tealAccent.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.system_update_alt, color: Colors.black, size: 24),
+                        SizedBox(width: 10),
+                        Text(
+                          'SOFTWARE UPDATE',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
     );
@@ -842,119 +871,132 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
 
     return Container(
             color: const Color(0xFF15171C), // Slightly different shade to differentiate control pad
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                const Text('Robot Live Control', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-                
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // JoyStick Area
-                    Expanded(
-                      flex: 3,
-                      child: Center(
-                        child: Joystick(
-                          mode: JoystickMode.all,
-                          listener: _onJoystickChanged,
-                          stick: Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.primary,
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
-                                  blurRadius: 15,
-                                  spreadRadius: 2,
-                                )
-                              ],
-                            ),
-                            child: const Icon(Icons.gamepad, color: Colors.black, size: 30),
-                          ),
-                          base: Container(
-                            width: 180,
-                            height: 180,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A2D35),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.grey.shade800, width: 3),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Speed Slider Area
-                    Expanded(
-                      flex: 1,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.speed, color: Theme.of(context).colorScheme.secondary),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            height: 150,
-                            child: RotatedBox(
-                              quarterTurns: 3, // Make slider vertical
-                              child: Slider(
-                                value: _currentSpeedGear,
-                                min: 1,
-                                max: 4,
-                                divisions: 3,
-                                activeColor: Theme.of(context).colorScheme.primary,
-                                inactiveColor: Colors.grey.shade800,
-                                onChanged: (val) {
-                                  setState(() { _currentSpeedGear = val; });
-                                },
-                                onChangeEnd: (val) {
-                                  _sendCommand(val.toInt().toString());
-                                },
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+              child: Column(
+                children: [
+                  const Text('Robot Live Control', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 24),
+                IgnorePointer(
+                  ignoring: _isLineFollowerMode,
+                  child: AnimatedOpacity(
+                    opacity: _isLineFollowerMode ? 0.3 : 1.0,
+                    duration: const Duration(milliseconds: 300),
+                    child: Column(
+                      children: [
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // JoyStick Area
+                              Expanded(
+                                flex: 3,
+                                child: Center(
+                                  child: Joystick(
+                                    mode: JoystickMode.all,
+                                    listener: _onJoystickChanged,
+                                    stick: Container(
+                                      width: 45,
+                                      height: 45,
+                                      decoration: BoxDecoration(
+                                        color: Theme.of(context).colorScheme.primary,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+                                            blurRadius: 15,
+                                            spreadRadius: 2,
+                                          )
+                                        ],
+                                      ),
+                                      child: const Icon(Icons.gamepad, color: Colors.black, size: 24),
+                                    ),
+                                    base: Container(
+                                      width: 140,
+                                      height: 140,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF2A2D35),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.grey.shade800, width: 3),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+
+                              // Speed Slider Area
+                              Expanded(
+                                flex: 1,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.speed, color: Theme.of(context).colorScheme.secondary),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 110,
+                                      child: RotatedBox(
+                                        quarterTurns: 3, // Make slider vertical
+                                        child: Slider(
+                                          value: _currentSpeedGear,
+                                          min: 1,
+                                          max: 4,
+                                          divisions: 3,
+                                          activeColor: Theme.of(context).colorScheme.primary,
+                                          inactiveColor: Colors.grey.shade800,
+                                          onChanged: (val) {
+                                            setState(() { _currentSpeedGear = val; });
+                                          },
+                                          onChangeEnd: (val) {
+                                            _sendCommand(val.toInt().toString());
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    Text('Gear ${_currentSpeedGear.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          Text('Gear ${_currentSpeedGear.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                          
+                          const SizedBox(height: 30),
+                          // Action Buttons
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _buildControlButton(Icons.rotate_right, 'C', isAction: true),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() { _isBuzzerOn = !_isBuzzerOn; });
+                                  _sendCommand(_isBuzzerOn ? 'Z' : 'z');
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _isBuzzerOn ? Colors.amber.shade700 : const Color(0xFF2A2D35),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  side: BorderSide(color: _isBuzzerOn ? Colors.amber : Colors.grey.shade700),
+                                ),
+                                icon: Icon(_isBuzzerOn ? Icons.volume_up : Icons.volume_off),
+                                label: Text(_isBuzzerOn ? 'BUZZ ON' : 'BUZZ OFF'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => _sendCommand('S'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange.shade700,
+                                  foregroundColor: Colors.white,
+                                  shape: const CircleBorder(),
+                                  padding: const EdgeInsets.all(16),
+                                ),
+                                child: const Icon(Icons.stop_circle, size: 30),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
-                  ],
                 ),
                 
-                // Action Buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildControlButton(Icons.rotate_right, 'C', isAction: true),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() { _isBuzzerOn = !_isBuzzerOn; });
-                        _sendCommand(_isBuzzerOn ? 'Z' : 'z');
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isBuzzerOn ? Colors.amber.shade700 : const Color(0xFF2A2D35),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        side: BorderSide(color: _isBuzzerOn ? Colors.amber : Colors.grey.shade700),
-                      ),
-                      icon: Icon(_isBuzzerOn ? Icons.volume_up : Icons.volume_off),
-                      label: Text(_isBuzzerOn ? 'BUZZ ON' : 'BUZZ OFF'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _sendCommand('S'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange.shade700,
-                        foregroundColor: Colors.white,
-                        shape: const CircleBorder(),
-                        padding: const EdgeInsets.all(16),
-                      ),
-                      child: const Icon(Icons.stop_circle, size: 30),
-                    ),
-                  ],
-                ),
-                
-                // Force Stop Area
+                const SizedBox(height: 30),
+                // Force Stop Area (Remains Active)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: [
@@ -972,10 +1014,29 @@ class _BluetoothScannerScreenState extends State<BluetoothScannerScreen> {
                       icon: Icon(_isForceStopped ? Icons.lock : Icons.lock_open),
                       label: Text(_isForceStopped ? 'LOCKED' : 'FORCE STOP'),
                     ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('Auto', style: TextStyle(color: _isLineFollowerMode ? Colors.tealAccent : Colors.grey, fontWeight: FontWeight.bold, fontSize: 14)),
+                          Switch(
+                            value: _isLineFollowerMode,
+                            activeColor: Colors.tealAccent,
+                            onChanged: (val) {
+                              setState(() { _isLineFollowerMode = val; });
+                              _sendCommand(val ? 'MODE:LINE' : 'MODE:MANUAL');
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 60), // Keep empty space to prevent overlapping with Mic FAB
                   ],
                 ),
               ],
             ),
+          ),
     );
   }
 }
